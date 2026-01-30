@@ -10,15 +10,7 @@ jobs:
   sync_one:
     runs-on: ubuntu-latest
     steps:
-      - name: Verify token can access fork
-        env:
-          GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh auth status
-          gh api repos/arpc-ndsu/arpcFCIP --jq '{full_name, private, permissions, default_branch, parent: (.parent.full_name // null)}'
-
-      - name: Sync main from upstream (merge-upstream) with PR fallback
+      - name: Sync main from upstream (merge-upstream) with REST PR fallback
         env:
           GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
           FORK: arpc-ndsu/arpcFCIP
@@ -27,40 +19,35 @@ jobs:
           set -euo pipefail
 
           parent="$(gh api "repos/${FORK}" --jq '.parent.full_name // empty')"
-          if [ -z "$parent" ]; then
-            echo "Not a fork: $FORK"
-            exit 0
-          fi
-
           echo "Fork:   $FORK"
           echo "Parent: $parent"
           echo "Branch: $BRANCH"
 
-          # Attempt UI-equivalent fork sync
+          # 1) Try merge-upstream (UI "Sync fork")
           if gh api -X POST "repos/${FORK}/merge-upstream" -f "branch=${BRANCH}" >/dev/null; then
             echo "✅ merge-upstream succeeded"
             exit 0
           fi
 
-          echo "⚠️ merge-upstream failed; attempting PR fallback..."
+          echo "⚠️ merge-upstream failed; trying PR fallback (REST)..."
 
-          # Requires PR permissions on the fork repo for this token
+          upstream_owner="${parent%%/*}"
           title="Sync ${BRANCH} from ${parent}"
-          body="Automated sync PR because merge-upstream was blocked (branch protection) or conflicted."
 
-          # If PR already exists, do nothing
-          existing="$(gh pr list -R "${FORK}" --state open --base "${BRANCH}" --json number,title --jq '.[] | select(.title=="'"$title"'") | .number' | head -n 1 || true)"
+          # 2) Check existing open PRs via REST (no GraphQL)
+          existing="$(gh api "repos/${FORK}/pulls?state=open&base=${BRANCH}&per_page=100" \
+            --jq '.[] | select(.title=="'"$title"'") | .number' | head -n 1 || true)"
+
           if [ -n "${existing:-}" ]; then
             echo "PR already open: #$existing"
             exit 0
           fi
 
-          # Create PR in the fork repo from upstream owner branch
-          upstream_owner="${parent%%/*}"
-          gh pr create -R "${FORK}" \
-            --base "${BRANCH}" \
-            --head "${upstream_owner}:${BRANCH}" \
-            --title "${title}" \
-            --body "${body}"
+          # 3) Create PR via REST
+          gh api -X POST "repos/${FORK}/pulls" \
+            -f "title=${title}" \
+            -f "head=${upstream_owner}:${BRANCH}" \
+            -f "base=${BRANCH}" \
+            -f "body=Automated sync PR because merge-upstream was blocked or conflicted."
 
           echo "✅ PR created"
