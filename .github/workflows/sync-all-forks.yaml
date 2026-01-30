@@ -1,74 +1,21 @@
-name: Sync collaborator forks
-
-on:
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "If true, only prints what would be synced"
-        required: false
-        default: "true"
-      include_private:
-        description: "If true, include private repos (token must have access)"
-        required: false
-        default: "true"
-      verbose:
-        description: "If true, prints skip reasons"
-        required: false
-        default: "false"
-  schedule:
-    - cron: "30 6 * * 1" # Mondays 06:30 UTC
-
-permissions:
-  contents: read
-
-concurrency:
-  group: sync-collaborator-forks
-  cancel-in-progress: false
-
-jobs:
-  sync:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Verify token
-        env:
-          GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh auth status
-
-      - name: Sync forks where arpc-ndsu is collaborator
+      - name: Sync collaborator forks
         env:
           GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run || 'true' }}
-          INCLUDE_PRIVATE: ${{ inputs.include_private || 'true' }}
-          VERBOSE: ${{ inputs.verbose || 'false' }}
         run: |
           set -euo pipefail
-
-          echo "Dry run: $DRY_RUN"
-          echo "Include private: $INCLUDE_PRIVATE"
-          echo "Verbose: $VERBOSE"
-          echo
-
-          # visibility filter for /user/repos
-          # all = public+private you can access; public = only public
-          if [ "$INCLUDE_PRIVATE" = "true" ]; then
-            visibility="all"
-          else
-            visibility="public"
-          fi
 
           page=1
           per_page=100
 
           scanned=0
-          synced=0
+          attempted=0
+          updated=0
           skipped=0
           failed=0
 
           while : ; do
-            repos="$(gh api "user/repos?affiliation=collaborator&per_page=${per_page}&page=${page}&visibility=${visibility}&sort=updated")"
+            repos="$(gh api "user/repos?affiliation=owner,collaborator&per_page=${per_page}&page=${page}&visibility=all&sort=updated")"
             count="$(echo "$repos" | jq 'length')"
             [ "$count" -eq 0 ] && break
 
@@ -78,37 +25,31 @@ jobs:
               full_name="$(echo "$repo" | jq -r '.full_name')"
               is_fork="$(echo "$repo" | jq -r '.fork')"
               archived="$(echo "$repo" | jq -r '.archived')"
-              default_branch="$(echo "$repo" | jq -r '.default_branch')"
+              branch="$(echo "$repo" | jq -r '.default_branch')"
 
-              if [ "$archived" = "true" ]; then
-                skipped=$((skipped+1))
-                [ "$VERBOSE" = "true" ] && echo "SKIP (archived): $full_name"
-                continue
-              fi
-
-              if [ "$is_fork" != "true" ]; then
-                skipped=$((skipped+1))
-                [ "$VERBOSE" = "true" ] && echo "SKIP (not a fork): $full_name"
-                continue
-              fi
+              [ "$archived" = "true" ] && { skipped=$((skipped+1)); continue; }
+              [ "$is_fork" != "true" ] && { skipped=$((skipped+1)); continue; }
 
               parent="$(gh api "repos/${full_name}" --jq '.parent.full_name // empty' || true)"
-              if [ -z "$parent" ]; then
-                skipped=$((skipped+1))
-                [ "$VERBOSE" = "true" ] && echo "SKIP (fork but no parent): $full_name"
-                continue
-              fi
+              [ -z "$parent" ] && { skipped=$((skipped+1)); continue; }
 
-              echo "SYNC: $full_name <= $parent (branch: $default_branch)"
+              attempted=$((attempted+1))
+
+              # Compute "behind" before (compare parent...fork)
+              behind_before="$(gh api "repos/${parent}/compare/${branch}...${full_name##*/}:${branch}" --jq '.behind_by' 2>/dev/null || echo "NA")"
+              echo "SYNC: $full_name <= $parent ($branch) | behind_before=$behind_before"
 
               if [ "$DRY_RUN" = "true" ]; then
                 continue
               fi
 
-              if gh repo sync "$full_name" -b "$default_branch"; then
-                synced=$((synced+1))
+              # Sync using GitHub's fork sync endpoint
+              if gh api -X POST "repos/${full_name}/merge-upstream" -f branch="${branch}" >/dev/null; then
+                behind_after="$(gh api "repos/${parent}/compare/${branch}...${full_name##*/}:${branch}" --jq '.behind_by' 2>/dev/null || echo "NA")"
+                echo "  OK | behind_after=$behind_after"
+                updated=$((updated+1))
               else
-                echo "FAILED: $full_name"
+                echo "  FAILED: merge-upstream blocked for $full_name"
                 failed=$((failed+1))
               fi
             done
@@ -118,10 +59,11 @@ jobs:
 
           echo
           echo "Summary:"
-          echo "  Scanned: $scanned"
-          echo "  Synced:  $synced"
-          echo "  Skipped: $skipped"
-          echo "  Failed:  $failed"
+          echo "  Scanned:   $scanned"
+          echo "  Attempted: $attempted"
+          echo "  Updated:   $updated"
+          echo "  Skipped:   $skipped"
+          echo "  Failed:    $failed"
 
           if [ "$failed" -gt 0 ] && [ "$DRY_RUN" != "true" ]; then
             exit 1
