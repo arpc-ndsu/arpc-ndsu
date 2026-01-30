@@ -22,19 +22,19 @@ jobs:
 
           - name: arpcCOST
             upstream_token: ARPCCOST_TOKEN
-            enabled: false
+            enabled: true
 
           - name: arpcEDITOR
             upstream_token: ARPCEDITOR_TOKEN
-            enabled: false
+            enabled: true
 
           - name: arpcPRICE
             upstream_token: ARPCPRICE_TOKEN
-            enabled: false
+            enabled: true
 
           - name: arpcPERIL
             upstream_token: ARPCPERIL_TOKEN
-            enabled: false
+            enabled: true
 
     steps:
       - name: Skip disabled repos
