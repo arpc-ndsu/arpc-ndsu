@@ -1,4 +1,4 @@
-name: Sync all forks (user account) from upstream
+name: Sync all forks from upstream
 
 on:
   workflow_dispatch:
@@ -7,6 +7,10 @@ on:
         description: "If true, only prints what would be synced"
         required: false
         default: "true"
+      verbose:
+        description: "If true, print per-repo decisions"
+        required: false
+        default: "false"
   schedule:
     - cron: "30 6 * * 1" # Mondays 06:30 UTC
 
@@ -22,15 +26,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Ensure token is available
+      - name: Verify token
         env:
           GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "Missing ARPC_SYNC_TOKEN secret in this repo."
-            exit 1
-          fi
           gh auth status
 
       - name: Sync all forks owned by arpc-ndsu
@@ -38,17 +38,18 @@ jobs:
           GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
           OWNER: arpc-ndsu
           DRY_RUN: ${{ inputs.dry_run || 'true' }}
+          VERBOSE: ${{ inputs.verbose || 'false' }}
         run: |
           set -euo pipefail
 
           echo "Owner: $OWNER"
           echo "Dry run: $DRY_RUN"
+          echo "Verbose: $VERBOSE"
           echo
-
-          gh --version
 
           page=1
           per_page=100
+          scanned=0
           synced=0
           skipped=0
           failed=0
@@ -58,21 +59,35 @@ jobs:
             count="$(echo "$repos" | jq 'length')"
             [ "$count" -eq 0 ] && break
 
-            echo "$repos" | jq -c '.[]' | while read -r repo; do
+            # Iterate WITHOUT a pipe so counters persist
+            for repo in $(echo "$repos" | jq -c '.[]'); do
+              scanned=$((scanned+1))
+
               full_name="$(echo "$repo" | jq -r '.full_name')"
               is_fork="$(echo "$repo" | jq -r '.fork')"
               archived="$(echo "$repo" | jq -r '.archived')"
               default_branch="$(echo "$repo" | jq -r '.default_branch')"
 
-              if [ "$is_fork" != "true" ] || [ "$archived" = "true" ]; then
+              if [ "$is_fork" != "true" ]; then
                 skipped=$((skipped+1))
+                if [ "$VERBOSE" = "true" ]; then
+                  echo "SKIP (not a fork): $full_name"
+                fi
+                continue
+              fi
+
+              if [ "$archived" = "true" ]; then
+                skipped=$((skipped+1))
+                if [ "$VERBOSE" = "true" ]; then
+                  echo "SKIP (archived): $full_name"
+                fi
                 continue
               fi
 
               parent="$(gh api "repos/${full_name}" --jq '.parent.full_name // empty' || true)"
               if [ -z "$parent" ]; then
-                echo "SKIP (no parent): $full_name"
                 skipped=$((skipped+1))
+                echo "SKIP (fork but no parent): $full_name"
                 continue
               fi
 
@@ -95,6 +110,7 @@ jobs:
 
           echo
           echo "Summary:"
+          echo "  Scanned: $scanned"
           echo "  Synced:  $synced"
           echo "  Skipped: $skipped"
           echo "  Failed:  $failed"
