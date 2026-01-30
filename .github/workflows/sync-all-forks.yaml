@@ -1,4 +1,4 @@
-name: Sync all org forks from upstream
+name: Sync all forks (user account) from upstream
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
       dry_run:
         description: "If true, only prints what would be synced"
         required: false
-        default: "false"
+        default: "true"
   schedule:
     - cron: "30 6 * * 1" # Mondays 06:30 UTC
 
@@ -22,15 +22,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Sync all forks in arpc-ndsu
+      - name: Ensure token is available
         env:
           GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
-          ORG: arpc-ndsu
-          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "Missing ARPC_SYNC_TOKEN secret in this repo."
+            exit 1
+          fi
+          gh auth status
+
+      - name: Sync all forks owned by arpc-ndsu
+        env:
+          GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
+          OWNER: arpc-ndsu
+          DRY_RUN: ${{ inputs.dry_run || 'true' }}
         run: |
           set -euo pipefail
 
-          echo "Org: $ORG"
+          echo "Owner: $OWNER"
           echo "Dry run: $DRY_RUN"
           echo
 
@@ -43,9 +54,8 @@ jobs:
           failed=0
 
           while : ; do
-            repos="$(gh api "orgs/${ORG}/repos?per_page=${per_page}&page=${page}")"
+            repos="$(gh api "users/${OWNER}/repos?per_page=${per_page}&page=${page}&type=owner&sort=updated")"
             count="$(echo "$repos" | jq 'length')"
-
             [ "$count" -eq 0 ] && break
 
             echo "$repos" | jq -c '.[]' | while read -r repo; do
