@@ -1,4 +1,4 @@
-name: Sync all forks from upstream
+name: Sync collaborator forks
 
 on:
   workflow_dispatch:
@@ -7,8 +7,12 @@ on:
         description: "If true, only prints what would be synced"
         required: false
         default: "true"
+      include_private:
+        description: "If true, include private repos (token must have access)"
+        required: false
+        default: "true"
       verbose:
-        description: "If true, print per-repo decisions"
+        description: "If true, prints skip reasons"
         required: false
         default: "false"
   schedule:
@@ -18,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: sync-all-forks
+  group: sync-collaborator-forks
   cancel-in-progress: false
 
 jobs:
@@ -33,33 +37,41 @@ jobs:
           set -euo pipefail
           gh auth status
 
-      - name: Sync all forks owned by arpc-ndsu
+      - name: Sync forks where arpc-ndsu is collaborator
         env:
           GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
-          OWNER: arpc-ndsu
           DRY_RUN: ${{ inputs.dry_run || 'true' }}
+          INCLUDE_PRIVATE: ${{ inputs.include_private || 'true' }}
           VERBOSE: ${{ inputs.verbose || 'false' }}
         run: |
           set -euo pipefail
 
-          echo "Owner: $OWNER"
           echo "Dry run: $DRY_RUN"
+          echo "Include private: $INCLUDE_PRIVATE"
           echo "Verbose: $VERBOSE"
           echo
 
+          # visibility filter for /user/repos
+          # all = public+private you can access; public = only public
+          if [ "$INCLUDE_PRIVATE" = "true" ]; then
+            visibility="all"
+          else
+            visibility="public"
+          fi
+
           page=1
           per_page=100
+
           scanned=0
           synced=0
           skipped=0
           failed=0
 
           while : ; do
-            repos="$(gh api "users/${OWNER}/repos?per_page=${per_page}&page=${page}&type=owner&sort=updated")"
+            repos="$(gh api "user/repos?affiliation=collaborator&per_page=${per_page}&page=${page}&visibility=${visibility}&sort=updated")"
             count="$(echo "$repos" | jq 'length')"
             [ "$count" -eq 0 ] && break
 
-            # Iterate WITHOUT a pipe so counters persist
             for repo in $(echo "$repos" | jq -c '.[]'); do
               scanned=$((scanned+1))
 
@@ -68,30 +80,26 @@ jobs:
               archived="$(echo "$repo" | jq -r '.archived')"
               default_branch="$(echo "$repo" | jq -r '.default_branch')"
 
-              if [ "$is_fork" != "true" ]; then
+              if [ "$archived" = "true" ]; then
                 skipped=$((skipped+1))
-                if [ "$VERBOSE" = "true" ]; then
-                  echo "SKIP (not a fork): $full_name"
-                fi
+                [ "$VERBOSE" = "true" ] && echo "SKIP (archived): $full_name"
                 continue
               fi
 
-              if [ "$archived" = "true" ]; then
+              if [ "$is_fork" != "true" ]; then
                 skipped=$((skipped+1))
-                if [ "$VERBOSE" = "true" ]; then
-                  echo "SKIP (archived): $full_name"
-                fi
+                [ "$VERBOSE" = "true" ] && echo "SKIP (not a fork): $full_name"
                 continue
               fi
 
               parent="$(gh api "repos/${full_name}" --jq '.parent.full_name // empty' || true)"
               if [ -z "$parent" ]; then
                 skipped=$((skipped+1))
-                echo "SKIP (fork but no parent): $full_name"
+                [ "$VERBOSE" = "true" ] && echo "SKIP (fork but no parent): $full_name"
                 continue
               fi
 
-              echo "SYNC: $full_name  <=  $parent  (branch: $default_branch)"
+              echo "SYNC: $full_name <= $parent (branch: $default_branch)"
 
               if [ "$DRY_RUN" = "true" ]; then
                 continue
