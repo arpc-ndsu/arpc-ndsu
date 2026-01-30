@@ -1,4 +1,4 @@
-name: Sync arpc-ndsu/arpcFCIP (push sync branch + PR)
+name: Sync arpc-ndsu/arpcFCIP from ftsiboe/arpcFCIP
 
 on:
   workflow_dispatch:
@@ -11,26 +11,37 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+
     steps:
       - name: Set variables
         run: |
           echo "FORK=arpc-ndsu/arpcFCIP" >> $GITHUB_ENV
-          echo "UPSTREAM=ftsiboe/arpcFCIP" >> $GITHUB_ENV   # ✅ FIXED OWNER
+          echo "UPSTREAM=ftsiboe/arpcFCIP" >> $GITHUB_ENV
           echo "BASE=main" >> $GITHUB_ENV
           echo "SYNC_BRANCH=sync/upstream-main" >> $GITHUB_ENV
 
-      - name: Clone fork (use fork token)
+      - name: Sanity check tokens can see repos
         env:
           GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
         run: |
           set -euo pipefail
-          gh auth status
+          echo "Using ARPC_SYNC_TOKEN to check fork access:"
+          gh api "repos/${FORK}" --jq '{full_name, private, permissions}'
+        # Upstream is fetched via git using ARPCFCIP_TOKEN below; this check is optional.
+
+      - name: Clone fork (push via ARPC_SYNC_TOKEN)
+        env:
+          GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
           gh repo clone "${FORK}" repo
 
       - name: Fetch upstream and push sync branch
         working-directory: repo
         env:
+          # Read upstream (private) with ARPCFCIP_TOKEN
           UPSTREAM_TOKEN: ${{ secrets.ARPCFCIP_TOKEN }}
+          # Push to fork with ARPC_SYNC_TOKEN
           FORK_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
         run: |
           set -euo pipefail
@@ -38,22 +49,26 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # origin → fork (write)
+          # origin => fork (write)
           git remote set-url origin "https://x-access-token:${FORK_TOKEN}@github.com/${FORK}.git"
 
-          # upstream → private upstream (read)
+          # upstream => upstream (read)
           git remote remove upstream 2>/dev/null || true
           git remote add upstream "https://x-access-token:${UPSTREAM_TOKEN}@github.com/${UPSTREAM}.git"
 
           echo "Remotes:"
           git remote -v
 
+          # Fetch upstream main
           git fetch upstream "${BASE}"
 
+          # Create/update sync branch from upstream/main
           git checkout -B "${SYNC_BRANCH}" "upstream/${BASE}"
+
+          # Push sync branch to fork
           git push -u origin "${SYNC_BRANCH}" --force-with-lease
 
-      - name: Open or update PR in fork
+      - name: Open PR if missing (sync branch -> main)
         env:
           GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
         run: |
@@ -61,18 +76,51 @@ jobs:
 
           title="Sync ${BASE} from ${UPSTREAM}"
 
-          existing="$(gh api "repos/${FORK}/pulls?state=open&base=${BASE}&per_page=100" \
+          # Find existing open PR from SYNC_BRANCH -> BASE (REST)
+          pr_number="$(gh api "repos/${FORK}/pulls?state=open&base=${BASE}&per_page=100" \
             --jq '.[] | select(.head.ref=="'"${SYNC_BRANCH}"'") | .number' | head -n 1 || true)"
 
-          if [ -n "${existing:-}" ]; then
-            echo "PR already open: #$existing"
+          if [ -n "${pr_number:-}" ]; then
+            echo "PR already open: #${pr_number}"
             exit 0
           fi
 
-          gh api -X POST "repos/${FORK}/pulls" \
+          pr_number="$(gh api -X POST "repos/${FORK}/pulls" \
             -f "title=${title}" \
             -f "head=${SYNC_BRANCH}" \
             -f "base=${BASE}" \
-            -f "body=Automated sync PR created by controller workflow."
+            -f "body=Automated sync PR created by controller workflow." \
+            --jq '.number')"
 
-          echo "✅ PR created"
+          echo "✅ PR created: #${pr_number}"
+
+      # OPTIONAL: try to merge automatically (will fail if branch protection requires reviews/checks)
+      - name: Attempt auto-merge PR (optional)
+        env:
+          GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Find the PR again
+          pr_number="$(gh api "repos/${FORK}/pulls?state=open&base=${BASE}&per_page=100" \
+            --jq '.[] | select(.head.ref=="'"${SYNC_BRANCH}"'") | .number' | head -n 1 || true)"
+
+          if [ -z "${pr_number:-}" ]; then
+            echo "No open sync PR to merge."
+            exit 0
+          fi
+
+          echo "Trying to merge PR #${pr_number}..."
+          set +e
+          out="$(gh api -X PUT "repos/${FORK}/pulls/${pr_number}/merge" \
+            -f "merge_method=merge" 2>&1)"
+          status=$?
+          set -e
+
+          if [ $status -eq 0 ]; then
+            echo "✅ PR merged."
+          else
+            echo "⚠️ Auto-merge blocked (likely branch protection or conflicts)."
+            echo "$out"
+            echo "Leave the PR open and merge it manually, or relax protection / enable auto-merge."
+          fi
