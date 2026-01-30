@@ -2,7 +2,7 @@ name: Sync fork with upstream
 
 on:
   schedule:
-    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -11,73 +11,25 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Configure git
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Resolve and set upstream remote
-        id: upstream
+      - name: Sync via GitHub API (gh repo sync)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          # Get fork parent clone URL (empty if not a fork)
-          PARENT_CLONE_URL="$(gh api "repos/${REPO}" --jq '.parent.clone_url // empty')"
+          # Detect default branch (main/master/etc.)
+          DEFAULT_BRANCH="$(gh api "repos/${REPO}" --jq '.default_branch')"
+          echo "Default branch: $DEFAULT_BRANCH"
 
-          if [ -z "$PARENT_CLONE_URL" ]; then
-            echo "has_upstream=false" >> "$GITHUB_OUTPUT"
-            echo "Not a fork (no parent). Skipping sync."
+          # If not a fork, parent will be empty; skip safely
+          PARENT="$(gh api "repos/${REPO}" --jq '.parent.full_name // empty')"
+          if [ -z "$PARENT" ]; then
+            echo "Not a fork. Nothing to sync."
             exit 0
           fi
+          echo "Upstream parent: $PARENT"
 
-          echo "Upstream: $PARENT_CLONE_URL"
-          echo "has_upstream=true" >> "$GITHUB_OUTPUT"
-
-          if git remote get-url upstream >/dev/null 2>&1; then
-            git remote set-url upstream "$PARENT_CLONE_URL"
-          else
-            git remote add upstream "$PARENT_CLONE_URL"
-          fi
-
-      - name: Show remotes (debug)
-        if: steps.upstream.outputs.has_upstream == 'true'
-        run: git remote -v
-
-      - name: Fetch upstream
-        if: steps.upstream.outputs.has_upstream == 'true'
-        run: git fetch --prune upstream
-
-      - name: Detect default branch
-        if: steps.upstream.outputs.has_upstream == 'true'
-        id: branch
-        run: |
-          DEFAULT_BRANCH="$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')"
-          echo "branch=$DEFAULT_BRANCH" >> "$GITHUB_OUTPUT"
-
-      - name: Sync default branch
-        if: steps.upstream.outputs.has_upstream == 'true'
-        run: |
-          set -e
-          BR="${{ steps.branch.outputs.branch }}"
-          git checkout "$BR"
-
-          # Prefer fast-forward; merge if needed
-          if git merge --ff-only "upstream/$BR"; then
-            echo "Fast-forwarded."
-          else
-            git merge "upstream/$BR" --no-edit
-          fi
-
-      - name: Push
-        if: steps.upstream.outputs.has_upstream == 'true'
-        run: git push origin "${{ steps.branch.outputs.branch }}"
+          # Sync fork from its parent on default branch
+          gh repo sync "${REPO}" -b "${DEFAULT_BRANCH}"
