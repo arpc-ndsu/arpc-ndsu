@@ -1,48 +1,82 @@
-- name: Sync arpc-ndsu/arpcFCIP by pushing a sync branch + PR
-  env:
-    GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
-    FORK: arpc-ndsu/arpcFCIP
-    UPSTREAM: ftsiboe/arpcFCIP
-    BASE: main
-    SYNC_BRANCH: sync/upstream-main
-  run: |
-    set -euo pipefail
+name: Sync arpc-ndsu/arpcFCIP (push sync branch + PR)
 
-    gh auth status
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 6 * * 1" # Mondays 06:30 UTC
 
-    # Verify token can read both repos (important)
-    gh api "repos/${FORK}" --jq '{full_name, private, permissions}'
-    gh api "repos/${UPSTREAM}" --jq '{full_name, private}'
+permissions:
+  contents: read
 
-    # Checkout fork
-    gh repo clone "${FORK}" repo
-    cd repo
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set variables
+        run: |
+          echo "FORK=arpc-ndsu/arpcFCIP" >> $GITHUB_ENV
+          echo "UPSTREAM=ftsbioe/arpcFCIP" >> $GITHUB_ENV
+          echo "BASE=main" >> $GITHUB_ENV
+          echo "SYNC_BRANCH=sync/upstream-main" >> $GITHUB_ENV
 
-    git config user.name  "github-actions[bot]"
-    git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Clone fork (use fork token)
+        env:
+          GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh auth status
+          gh repo clone "${FORK}" repo
 
-    # Add upstream + fetch
-    git remote add upstream "https://github.com/${UPSTREAM}.git"
-    git fetch upstream "${BASE}"
+      - name: Fetch upstream and push sync branch (use upstream token for fetch, fork token for push)
+        working-directory: repo
+        env:
+          # Use upstream token to read private upstream
+          UPSTREAM_TOKEN: ${{ secrets.ARPCFCIP_TOKEN }}
+          # Use fork token to push to fork
+          FORK_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
 
-    # Create/update sync branch from upstream/base
-    git checkout -B "${SYNC_BRANCH}" "upstream/${BASE}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-    # Push sync branch to fork
-    git push -u origin "${SYNC_BRANCH}" --force-with-lease
+          # origin points to fork; re-set with fork token so push works
+          git remote set-url origin "https://x-access-token:${FORK_TOKEN}@github.com/${FORK}.git"
 
-    # Create PR in fork from SYNC_BRANCH -> BASE (REST)
-    title="Sync ${BASE} from ${UPSTREAM}"
-    existing="$(gh api "repos/${FORK}/pulls?state=open&base=${BASE}&per_page=100" \
-      --jq '.[] | select(.head.ref=="'"${SYNC_BRANCH}"'") | .number' | head -n 1 || true)"
+          # add upstream with upstream token so fetch works for private upstream
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote remove upstream
+          fi
+          git remote add upstream "https://x-access-token:${UPSTREAM_TOKEN}@github.com/${UPSTREAM}.git"
 
-    if [ -n "${existing:-}" ]; then
-      echo "PR already open: #$existing"
-      exit 0
-    fi
+          git fetch upstream "${BASE}"
 
-    gh api -X POST "repos/${FORK}/pulls" \
-      -f "title=${title}" \
-      -f "head=${SYNC_BRANCH}" \
-      -f "base=${BASE}" \
-      -f "body=Automated sync PR created by controller workflow."
+          # Create/update sync branch from upstream/base
+          git checkout -B "${SYNC_BRANCH}" "upstream/${BASE}"
+
+          # Push sync branch to fork
+          git push -u origin "${SYNC_BRANCH}" --force-with-lease
+
+      - name: Open or update PR in fork (use fork token)
+        env:
+          GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          title="Sync ${BASE} from ${UPSTREAM}"
+
+          # If PR already open from sync branch, do nothing
+          existing="$(gh api "repos/${FORK}/pulls?state=open&base=${BASE}&per_page=100" \
+            --jq '.[] | select(.head.ref=="'"${SYNC_BRANCH}"'") | .number' | head -n 1 || true)"
+
+          if [ -n "${existing:-}" ]; then
+            echo "PR already open: #$existing"
+            exit 0
+          fi
+
+          gh api -X POST "repos/${FORK}/pulls" \
+            -f "title=${title}" \
+            -f "head=${SYNC_BRANCH}" \
+            -f "base=${BASE}" \
+            -f "body=Automated sync PR created by controller workflow."
+          echo "✅ PR created"
