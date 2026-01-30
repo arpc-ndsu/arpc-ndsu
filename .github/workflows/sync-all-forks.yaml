@@ -1,22 +1,58 @@
-- name: Sync collaborator forks via merge-upstream API
-  env:
-    GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
-  run: |
-    set -euo pipefail
+name: Sync arpc-ndsu/arpcFCIP
 
-    # Try syncing just this one repo first (arpc-ndsu fork of ftsiboe/arpcFCIP)
-    REPO="arpc-ndsu/arpcFCIP"
-    BRANCH="$(gh api "repos/${REPO}" --jq '.default_branch')"
-    PARENT="$(gh api "repos/${REPO}" --jq '.parent.full_name // empty')"
+on:
+  workflow_dispatch:
 
-    echo "Repo: $REPO"
-    echo "Parent: $PARENT"
-    echo "Branch: $BRANCH"
+permissions:
+  contents: read
 
-    if [ -z "$PARENT" ]; then
-      echo "This repo is not a fork (no parent)."
-      exit 0
-    fi
+jobs:
+  sync_one:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync fork main from upstream (merge-upstream, PR fallback)
+        env:
+          GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
+          FORK: arpc-ndsu/arpcFCIP
+          BRANCH: main
+        run: |
+          set -euo pipefail
 
-    echo "Calling merge-upstream..."
-    gh api -X POST "repos/${REPO}/merge-upstream" -f branch="${BRANCH}"
+          parent="$(gh api "repos/${FORK}" --jq '.parent.full_name // empty')"
+          if [ -z "$parent" ]; then
+            echo "Not a fork: $FORK"
+            exit 0
+          fi
+          echo "Fork:   $FORK"
+          echo "Parent: $parent"
+          echo "Branch: $BRANCH"
+
+          # Try GitHub-native fork sync (same as UI "Sync fork")
+          if gh api -X POST "repos/${FORK}/merge-upstream" -f "branch=${BRANCH}" >/dev/null; then
+            echo "✅ merge-upstream succeeded"
+            exit 0
+          fi
+
+          echo "⚠️ merge-upstream failed; opening PR fallback..."
+
+          # PR fallback: open PR from parent BRANCH into fork BRANCH
+          # This requires that the fork has an "upstream" remote relationship in GitHub (it does).
+          # We create a PR in the fork repo.
+          title="Sync ${BRANCH} from ${parent}"
+          body="Automated sync PR because merge-upstream was blocked (branch protection) or conflicted."
+
+          # Check if an existing open PR already exists
+          existing="$(gh pr list -R "${FORK}" --state open --search "head:${parent%%/*}:${BRANCH} base:${BRANCH}" --json number --jq '.[0].number // empty' || true)"
+          if [ -n "$existing" ]; then
+            echo "PR already open: #$existing"
+            exit 0
+          fi
+
+          # Create PR using cross-repo head ref: OWNER:branch
+          gh pr create -R "${FORK}" \
+            --base "${BRANCH}" \
+            --head "${parent%%/*}:${BRANCH}" \
+            --title "${title}" \
+            --body "${body}"
+
+          echo "✅ PR created"
