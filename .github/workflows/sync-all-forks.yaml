@@ -1,0 +1,94 @@
+name: Sync all org forks from upstream
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "If true, only prints what would be synced"
+        required: false
+        default: "false"
+  schedule:
+    - cron: "30 6 * * 1" # Mondays 06:30 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-all-forks
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Sync all forks in arpc-ndsu
+        env:
+          GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
+          ORG: arpc-ndsu
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+
+          echo "Org: $ORG"
+          echo "Dry run: $DRY_RUN"
+          echo
+
+          gh --version
+
+          page=1
+          per_page=100
+          synced=0
+          skipped=0
+          failed=0
+
+          while : ; do
+            repos="$(gh api "orgs/${ORG}/repos?per_page=${per_page}&page=${page}")"
+            count="$(echo "$repos" | jq 'length')"
+
+            [ "$count" -eq 0 ] && break
+
+            echo "$repos" | jq -c '.[]' | while read -r repo; do
+              full_name="$(echo "$repo" | jq -r '.full_name')"
+              is_fork="$(echo "$repo" | jq -r '.fork')"
+              archived="$(echo "$repo" | jq -r '.archived')"
+              default_branch="$(echo "$repo" | jq -r '.default_branch')"
+
+              if [ "$is_fork" != "true" ] || [ "$archived" = "true" ]; then
+                skipped=$((skipped+1))
+                continue
+              fi
+
+              parent="$(gh api "repos/${full_name}" --jq '.parent.full_name // empty' || true)"
+              if [ -z "$parent" ]; then
+                echo "SKIP (no parent): $full_name"
+                skipped=$((skipped+1))
+                continue
+              fi
+
+              echo "SYNC: $full_name  <=  $parent  (branch: $default_branch)"
+
+              if [ "$DRY_RUN" = "true" ]; then
+                continue
+              fi
+
+              if gh repo sync "$full_name" -b "$default_branch"; then
+                synced=$((synced+1))
+              else
+                echo "FAILED: $full_name"
+                failed=$((failed+1))
+              fi
+            done
+
+            page=$((page+1))
+          done
+
+          echo
+          echo "Summary:"
+          echo "  Synced:  $synced"
+          echo "  Skipped: $skipped"
+          echo "  Failed:  $failed"
+
+          if [ "$failed" -gt 0 ] && [ "$DRY_RUN" != "true" ]; then
+            exit 1
+          fi
