@@ -15,7 +15,7 @@ jobs:
       - name: Set variables
         run: |
           echo "FORK=arpc-ndsu/arpcFCIP" >> $GITHUB_ENV
-          echo "UPSTREAM=ftsbioe/arpcFCIP" >> $GITHUB_ENV   # ✅ FIXED OWNER
+          echo "UPSTREAM=ftsiboe/arpcFCIP" >> $GITHUB_ENV   # ✅ FIXED OWNER
           echo "BASE=main" >> $GITHUB_ENV
           echo "SYNC_BRANCH=sync/upstream-main" >> $GITHUB_ENV
 
