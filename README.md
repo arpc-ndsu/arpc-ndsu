@@ -1,0 +1,119 @@
+\# 👋 Hi & Welcome to the ARPC at NDSU!
+================
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+We deliver **objective, evidence-based economic insights** that inform
+agricultural policy and support producers, policymakers, and industry
+leaders in managing economic risk and building a stronger, more
+resilient U.S. agricultural economy.
+
+🌐 [ARPC](https://www.arpc-ndsu.com/) \| 👥 [ARPC
+Team](https://www.arpc-ndsu.com/team) \| 📰 [ARPC News &
+Publications](https://www.arpc-ndsu.com/news) \| 🎓
+[NDSU](https://www.ndsu.edu/)
+
+------------------------------------------------------------------------
+
+## 🧠 Our mission
+
+ARPC conducts **independent, rigorous research** on agricultural risk
+management and farm safety-net programs to:
+
+- analyze how policies function in real-world conditions  
+- identify gaps and areas for improvement  
+- provide evidence-based insights to enhance program effectiveness  
+- help sustain farm income, strengthen rural communities, and stabilize
+  markets
+
+We do **not advocate for specific policies**. Instead, our work equips
+decision-makers with unbiased analysis to evaluate potential reforms and
+understand their economic implications.
+
+------------------------------------------------------------------------
+
+## 🎯 Focus areas
+
+### 1) Agricultural Risk Analysis
+
+We provide research-driven insights to strengthen agricultural risk
+management policies so farmers and ranchers can navigate uncertainty,
+protect livelihoods, and sustain rural economies.  
+Key focus areas include **crop insurance**, **disaster assistance**,
+**income protection**, and **livestock & dairy risk management
+tools**.  
+Learn more: <https://www.arpc-ndsu.com/agricultural-risks>
+
+### 2) Market Disruption Analysis
+
+We analyze the causes and consequences of market disruptions-such as
+extreme weather, policy changes, supply chain breakdowns, and
+geopolitical instability-to deliver timely economic insights that help
+policymakers develop effective responses.  
+Key focus areas include **market volatility**, **disaster-driven
+disruptions**, **supply chain resilience**, and **trade/export
+competitiveness**.  
+Learn more: <https://www.arpc-ndsu.com/market-disruptions>
+
+------------------------------------------------------------------------
+
+## 🔎 What you’ll find here
+
+- **Open-source tools** supporting reproducible policy research  
+- **Analysis code** underpinning briefs, reports, and academic papers  
+- **Data and methods** for simulation, benchmarking, and risk
+  evaluation  
+- Documentation for collaboration and knowledge sharing
+
+------------------------------------------------------------------------
+
+## 🤝 Collaboration & contributions
+
+We welcome constructive contributions and research partnerships:
+
+1.  Open an **Issue** describing your question or suggestion  
+2.  Include context on data, desired output, and research goals  
+3.  If you have a fix or feature, submit a **Pull Request** with clear
+    intentions
+
+> Some workflows rely on restricted or licensed data. Repositories
+> indicate when such access is required.
+
+------------------------------------------------------------------------
+
+## 📦 R Packages - Private 🔒
+
+These packages support internal ARPC research workflows and require
+restricted or proprietary data:
+
+- **[arpcPriceBasis](https://github.com/ftsiboe/ftsiboe/tree/main/data-raw/private_packages/arpcPriceBasis.md):**
+  Tools for constructing and harmonizing commodity price and basis
+  measures at county/elevator scale.
+- **[arpcCost](https://github.com/ftsiboe/ftsiboe/tree/main/data-raw/private_packages/arpcCost.md):**
+  Utilities for calibrating and benchmarking agricultural production
+  costs by commodity and county.
+- **[arpcFCIP](https://github.com/ftsiboe/ftsiboe/tree/main/data-raw/private_packages/arpcFCIP.md):**
+  Infrastructure to simulate, project, and benchmark Federal Crop
+  Insurance Program outcomes.
+
+> 🔐 **Access note:** These packages are maintained for internal ARPC
+> research. Documentation describes scope and methodology, but source
+> code and data may not be publicly accessible without appropriate
+> credentials.
+
+------------------------------------------------------------------------
+
+## 🌍 Stakeholders and impact
+
+Our work supports:
+
+- **Policymakers** evaluating program performance and reform options  
+- **Producers and industry analysts** navigating risk and market
+  volatility  
+- **Researchers** building on transparent, reproducible analysis
+
+Through collaboration and data-driven evaluation, ARPC aims to
+contribute to **smarter, more resilient agricultural risk management
+policies**.
+
+------------------------------------------------------------------------
