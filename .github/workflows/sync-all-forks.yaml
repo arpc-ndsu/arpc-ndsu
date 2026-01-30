@@ -15,7 +15,7 @@ jobs:
       - name: Set variables
         run: |
           echo "FORK=arpc-ndsu/arpcFCIP" >> $GITHUB_ENV
-          echo "UPSTREAM=ftsbioe/arpcFCIP" >> $GITHUB_ENV
+          echo "UPSTREAM=ftsbioe/arpcFCIP" >> $GITHUB_ENV   # ✅ FIXED OWNER
           echo "BASE=main" >> $GITHUB_ENV
           echo "SYNC_BRANCH=sync/upstream-main" >> $GITHUB_ENV
 
@@ -27,12 +27,10 @@ jobs:
           gh auth status
           gh repo clone "${FORK}" repo
 
-      - name: Fetch upstream and push sync branch (use upstream token for fetch, fork token for push)
+      - name: Fetch upstream and push sync branch
         working-directory: repo
         env:
-          # Use upstream token to read private upstream
           UPSTREAM_TOKEN: ${{ secrets.ARPCFCIP_TOKEN }}
-          # Use fork token to push to fork
           FORK_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
         run: |
           set -euo pipefail
@@ -40,24 +38,22 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # origin points to fork; re-set with fork token so push works
+          # origin → fork (write)
           git remote set-url origin "https://x-access-token:${FORK_TOKEN}@github.com/${FORK}.git"
 
-          # add upstream with upstream token so fetch works for private upstream
-          if git remote get-url upstream >/dev/null 2>&1; then
-            git remote remove upstream
-          fi
+          # upstream → private upstream (read)
+          git remote remove upstream 2>/dev/null || true
           git remote add upstream "https://x-access-token:${UPSTREAM_TOKEN}@github.com/${UPSTREAM}.git"
+
+          echo "Remotes:"
+          git remote -v
 
           git fetch upstream "${BASE}"
 
-          # Create/update sync branch from upstream/base
           git checkout -B "${SYNC_BRANCH}" "upstream/${BASE}"
-
-          # Push sync branch to fork
           git push -u origin "${SYNC_BRANCH}" --force-with-lease
 
-      - name: Open or update PR in fork (use fork token)
+      - name: Open or update PR in fork
         env:
           GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
         run: |
@@ -65,7 +61,6 @@ jobs:
 
           title="Sync ${BASE} from ${UPSTREAM}"
 
-          # If PR already open from sync branch, do nothing
           existing="$(gh api "repos/${FORK}/pulls?state=open&base=${BASE}&per_page=100" \
             --jq '.[] | select(.head.ref=="'"${SYNC_BRANCH}"'") | .number' | head -n 1 || true)"
 
@@ -79,4 +74,5 @@ jobs:
             -f "head=${SYNC_BRANCH}" \
             -f "base=${BASE}" \
             -f "body=Automated sync PR created by controller workflow."
+
           echo "✅ PR created"
