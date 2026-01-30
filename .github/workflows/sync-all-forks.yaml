@@ -1,4 +1,4 @@
-name: Sync arpc-ndsu/arpcFCIP from ftsiboe/arpcFCIP
+name: Sync arpcFCIP
 
 on:
   workflow_dispatch:
