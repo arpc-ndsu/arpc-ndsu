@@ -1,0 +1,6 @@
+- name: Check token access to fork
+  env:
+    GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
+  run: |
+    set -euo pipefail
+    gh api repos/arpc-ndsu/arpcFCIP --jq '{full_name, private, permissions}'
