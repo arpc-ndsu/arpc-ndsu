@@ -1,70 +1,22 @@
-      - name: Sync collaborator forks
-        env:
-          GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
-          DRY_RUN: ${{ inputs.dry_run || 'true' }}
-        run: |
-          set -euo pipefail
+- name: Sync collaborator forks via merge-upstream API
+  env:
+    GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
+  run: |
+    set -euo pipefail
 
-          page=1
-          per_page=100
+    # Try syncing just this one repo first (arpc-ndsu fork of ftsiboe/arpcFCIP)
+    REPO="arpc-ndsu/arpcFCIP"
+    BRANCH="$(gh api "repos/${REPO}" --jq '.default_branch')"
+    PARENT="$(gh api "repos/${REPO}" --jq '.parent.full_name // empty')"
 
-          scanned=0
-          attempted=0
-          updated=0
-          skipped=0
-          failed=0
+    echo "Repo: $REPO"
+    echo "Parent: $PARENT"
+    echo "Branch: $BRANCH"
 
-          while : ; do
-            repos="$(gh api "user/repos?affiliation=owner,collaborator&per_page=${per_page}&page=${page}&visibility=all&sort=updated")"
-            count="$(echo "$repos" | jq 'length')"
-            [ "$count" -eq 0 ] && break
+    if [ -z "$PARENT" ]; then
+      echo "This repo is not a fork (no parent)."
+      exit 0
+    fi
 
-            for repo in $(echo "$repos" | jq -c '.[]'); do
-              scanned=$((scanned+1))
-
-              full_name="$(echo "$repo" | jq -r '.full_name')"
-              is_fork="$(echo "$repo" | jq -r '.fork')"
-              archived="$(echo "$repo" | jq -r '.archived')"
-              branch="$(echo "$repo" | jq -r '.default_branch')"
-
-              [ "$archived" = "true" ] && { skipped=$((skipped+1)); continue; }
-              [ "$is_fork" != "true" ] && { skipped=$((skipped+1)); continue; }
-
-              parent="$(gh api "repos/${full_name}" --jq '.parent.full_name // empty' || true)"
-              [ -z "$parent" ] && { skipped=$((skipped+1)); continue; }
-
-              attempted=$((attempted+1))
-
-              # Compute "behind" before (compare parent...fork)
-              behind_before="$(gh api "repos/${parent}/compare/${branch}...${full_name##*/}:${branch}" --jq '.behind_by' 2>/dev/null || echo "NA")"
-              echo "SYNC: $full_name <= $parent ($branch) | behind_before=$behind_before"
-
-              if [ "$DRY_RUN" = "true" ]; then
-                continue
-              fi
-
-              # Sync using GitHub's fork sync endpoint
-              if gh api -X POST "repos/${full_name}/merge-upstream" -f branch="${branch}" >/dev/null; then
-                behind_after="$(gh api "repos/${parent}/compare/${branch}...${full_name##*/}:${branch}" --jq '.behind_by' 2>/dev/null || echo "NA")"
-                echo "  OK | behind_after=$behind_after"
-                updated=$((updated+1))
-              else
-                echo "  FAILED: merge-upstream blocked for $full_name"
-                failed=$((failed+1))
-              fi
-            done
-
-            page=$((page+1))
-          done
-
-          echo
-          echo "Summary:"
-          echo "  Scanned:   $scanned"
-          echo "  Attempted: $attempted"
-          echo "  Updated:   $updated"
-          echo "  Skipped:   $skipped"
-          echo "  Failed:    $failed"
-
-          if [ "$failed" -gt 0 ] && [ "$DRY_RUN" != "true" ]; then
-            exit 1
-          fi
+    echo "Calling merge-upstream..."
+    gh api -X POST "repos/${REPO}/merge-upstream" -f branch="${BRANCH}"
