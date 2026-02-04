@@ -30,11 +30,11 @@ jobs:
 
           - name: arpcPRICE
             upstream_token: ARPCPRICE_TOKEN
-            enabled: true
+            enabled: false
 
           - name: arpcPERIL
             upstream_token: ARPCPERIL_TOKEN
-            enabled: true
+            enabled: false
 
     steps:
       - name: Skip disabled repos
