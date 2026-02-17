@@ -1,4 +1,4 @@
-name: Sync ARPC from ftsiboe
+name: Sync arpcPACKAGES from ftsiboe
 
 on:
   workflow_dispatch:
