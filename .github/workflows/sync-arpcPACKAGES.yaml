@@ -28,6 +28,10 @@ jobs:
             upstream_token: ARPCEDITOR_TOKEN
             enabled: true
 
+          - name: arpcPASS
+            upstream_token: ARPCPASS_TOKEN
+            enabled: true
+            
           - name: arpcPRICE
             upstream_token: ARPCPRICE_TOKEN
             enabled: false
