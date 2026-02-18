@@ -5,8 +5,10 @@ on:
   schedule:
     - cron: "30 6 * * 1" # Mondays 06:30 UTC
 
+# Safer defaults (also works if you later switch to GITHUB_TOKEN)
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 jobs:
   sync:
@@ -31,7 +33,7 @@ jobs:
           - name: arpcYields
             upstream_token: ARPC_READ_TOKEN
             enabled: true
-            
+
           - name: arpcAcres
             upstream_token: ARPC_READ_TOKEN
             enabled: true
@@ -68,7 +70,7 @@ jobs:
         if: matrix.repo.enabled == true
         working-directory: repo
         env:
-          FORK_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}             # push to fork + open PR
+          FORK_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}                 # push to fork + open PR
           UPSTREAM_TOKEN: ${{ secrets[matrix.repo.upstream_token] }} # read private upstream
         run: |
           set -euo pipefail
@@ -90,19 +92,21 @@ jobs:
           echo "Remotes (after):"
           git remote -v
 
-          # ---- GitHub Docs: Syncing a fork branch from the command line ----
-          git fetch upstream
-          git checkout "${BRANCH}"
+          # Fetch only the target branch
+          git fetch --prune upstream "${BRANCH}"
 
-          echo "Attempting merge upstream/${BRANCH} -> ${BRANCH} ..."
-          if git merge "upstream/${BRANCH}"; then
-            echo "✅ Merge succeeded. Pushing ${BRANCH}..."
+          # Ensure the branch exists locally (robust even if clone didn't check it out)
+          git checkout "${BRANCH}" 2>/dev/null || git checkout -b "${BRANCH}" "origin/${BRANCH}"
+
+          echo "Attempting fast-forward merge upstream/${BRANCH} -> ${BRANCH} ..."
+          if git merge --ff-only "upstream/${BRANCH}"; then
+            echo "✅ Fast-forward succeeded. Pushing ${BRANCH}..."
             git push origin "${BRANCH}"
             exit 0
           fi
 
           echo
-          echo "⚠️ Merge failed (divergence or conflicts). Falling back to PR-based sync."
+          echo "⚠️ Fast-forward failed (divergence or conflicts). Falling back to PR-based sync."
           echo "Creating sync branch from upstream/${BRANCH} and opening PR in fork."
 
           # Abort merge state if any
@@ -130,7 +134,7 @@ jobs:
             -f "title=${title}" \
             -f "head=${SYNC_BRANCH}" \
             -f "base=${BRANCH}" \
-            -f "body=Automated sync PR created because direct merge had conflicts/divergence." \
+            -f "body=Automated sync PR created because direct fast-forward was not possible (divergence/conflicts)." \
             --jq '.number')"
 
           echo "✅ PR created: #${pr_number}"
