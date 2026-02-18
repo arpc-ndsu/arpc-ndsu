@@ -19,11 +19,11 @@ jobs:
       matrix:
         repo:
           - name: Farm-Safety-Net-Report
-            upstream_token: ARPC_READ_TOKEN
+            upstream_token: GITHUB_PAT
             enabled: true
 
           - name: arpc_google_scholar_metrics
-            upstream_token: ARPC_READ_TOKEN
+            upstream_token: GITHUB_PAT
             enabled: true
 
           - name: arpcNetFarmIncome
