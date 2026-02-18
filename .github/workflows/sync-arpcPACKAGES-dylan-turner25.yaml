@@ -1,1 +1,137 @@
- dd
+name: Sync arpcPACKAGES from dylan-turner25
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 6 * * 1" # Mondays 06:30 UTC
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        repo:
+          - name: Farm-Safety-Net-Report
+            upstream_token: ARPC_READ_TOKEN
+            enabled: true
+
+          - name: arpc_google_scholar_metrics
+            upstream_token: ARPC_READ_TOKEN
+            enabled: true
+
+          - name: arpcNetFarmIncome
+            upstream_token: ARPC_READ_TOKEN
+            enabled: true
+
+          - name: arpcYields
+            upstream_token: ARPC_READ_TOKEN
+            enabled: true
+            
+          - name: arpcAcres
+            upstream_token: ARPC_READ_TOKEN
+            enabled: true
+
+          - name: arpctheme
+            upstream_token: ARPC_READ_TOKEN
+            enabled: true
+
+    steps:
+      - name: Skip disabled repos
+        if: matrix.repo.enabled != true
+        run: |
+          echo "Skipping ${{ matrix.repo.name }} (enabled=false)."
+          exit 0
+
+      - name: Set variables
+        if: matrix.repo.enabled == true
+        run: |
+          echo "FORK=arpc-ndsu/${{ matrix.repo.name }}" >> $GITHUB_ENV
+          echo "UPSTREAM=dylan-turner25/${{ matrix.repo.name }}" >> $GITHUB_ENV
+          echo "BRANCH=main" >> $GITHUB_ENV
+          echo "SYNC_BRANCH=sync/upstream-main" >> $GITHUB_ENV
+
+      - name: Clone fork
+        if: matrix.repo.enabled == true
+        env:
+          GH_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh auth status
+          gh repo clone "${FORK}" repo
+
+      - name: Configure remotes, fetch upstream, merge, push (PR fallback on failure)
+        if: matrix.repo.enabled == true
+        working-directory: repo
+        env:
+          FORK_TOKEN: ${{ secrets.ARPC_SYNC_TOKEN }}             # push to fork + open PR
+          UPSTREAM_TOKEN: ${{ secrets[matrix.repo.upstream_token] }} # read private upstream
+        run: |
+          set -euo pipefail
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Ensure origin uses fork token (push)
+          git remote set-url origin "https://x-access-token:${FORK_TOKEN}@github.com/${FORK}.git"
+
+          # Configure upstream remote (fetch-only)
+          echo "Remotes (before):"
+          git remote -v
+
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "https://x-access-token:${UPSTREAM_TOKEN}@github.com/${UPSTREAM}.git"
+          git remote set-url --push upstream DISABLE
+
+          echo "Remotes (after):"
+          git remote -v
+
+          # ---- GitHub Docs: Syncing a fork branch from the command line ----
+          git fetch upstream
+          git checkout "${BRANCH}"
+
+          echo "Attempting merge upstream/${BRANCH} -> ${BRANCH} ..."
+          if git merge "upstream/${BRANCH}"; then
+            echo "✅ Merge succeeded. Pushing ${BRANCH}..."
+            git push origin "${BRANCH}"
+            exit 0
+          fi
+
+          echo
+          echo "⚠️ Merge failed (divergence or conflicts). Falling back to PR-based sync."
+          echo "Creating sync branch from upstream/${BRANCH} and opening PR in fork."
+
+          # Abort merge state if any
+          git merge --abort 2>/dev/null || true
+
+          # Create/update sync branch pointing exactly at upstream/main
+          git checkout -B "${SYNC_BRANCH}" "upstream/${BRANCH}"
+          git push -u origin "${SYNC_BRANCH}" --force-with-lease
+
+          cd ..
+
+          # Open PR inside fork: sync branch -> main (REST)
+          export GH_TOKEN="${FORK_TOKEN}"
+          title="Sync ${BRANCH} from ${UPSTREAM}"
+
+          pr_number="$(gh api "repos/${FORK}/pulls?state=open&base=${BRANCH}&per_page=100" \
+            --jq '.[] | select(.head.ref=="'"${SYNC_BRANCH}"'") | .number' | head -n 1 || true)"
+
+          if [ -n "${pr_number:-}" ]; then
+            echo "PR already open: #${pr_number}"
+            exit 0
+          fi
+
+          pr_number="$(gh api -X POST "repos/${FORK}/pulls" \
+            -f "title=${title}" \
+            -f "head=${SYNC_BRANCH}" \
+            -f "base=${BRANCH}" \
+            -f "body=Automated sync PR created because direct merge had conflicts/divergence." \
+            --jq '.number')"
+
+          echo "✅ PR created: #${pr_number}"
+          echo "Merge the PR to bring ${FORK}:${BRANCH} fully in sync with upstream."
