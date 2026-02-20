@@ -19,10 +19,10 @@ jobs:
       matrix:
         repo:
           - name: Farm-Safety-Net-Report
-            enabled: true
+            enabled: false
 
           - name: arpc_google_scholar_metrics
-            enabled: true
+            enabled: false
 
           - name: arpcNetFarmIncome
             upstream_token: ARPC_READ_TOKEN
