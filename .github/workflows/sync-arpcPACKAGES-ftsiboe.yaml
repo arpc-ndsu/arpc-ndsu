@@ -17,27 +17,27 @@ jobs:
       matrix:
         repo:
           - name: arpcFCIPHarness
-            upstream_token: ARPCFCIP_TOKEN
+            upstream_token: ARPC_READ_TOKEN_TSIBOE
             enabled: true
 
           - name: arpcCOST
-            upstream_token: ARPCCOST_TOKEN
+            upstream_token: ARPC_READ_TOKEN_TSIBOE
             enabled: true
 
           - name: arpcEDITOR
-            upstream_token: ARPCEDITOR_TOKEN
+            upstream_token: ARPC_READ_TOKEN_TSIBOE
             enabled: true
 
           - name: arpcPASS
-            upstream_token: ARPCPASS_TOKEN
+            upstream_token: ARPC_READ_TOKEN_TSIBOE
             enabled: true
 
           - name: arpcPRICE
-            upstream_token: ARPCPRICE_TOKEN
+            upstream_token: ARPC_READ_TOKEN_TSIBOE
             enabled: false
 
           - name: arpcPERIL
-            upstream_token: ARPCPERIL_TOKEN
+            upstream_token: ARPC_READ_TOKEN_TSIBOE
             enabled: false
 
           - name: arpcFCIPproj
