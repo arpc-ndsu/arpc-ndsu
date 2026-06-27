@@ -40,6 +40,17 @@ jobs:
             upstream_token: ARPCPERIL_TOKEN
             enabled: false
 
+          - name: arpcFCIPproj
+            upstream_token: ARPCPERIL_TOKEN
+            enabled: false
+
+          - name: arpcFCIPcalc
+            upstream_token: ARPCPERIL_TOKEN
+            enabled: false
+
+          - name: arpcCLU
+            upstream_token: ARPCPERIL_TOKEN
+            enabled: false
     steps:
       - name: Skip disabled repos
         if: matrix.repo.enabled != true
