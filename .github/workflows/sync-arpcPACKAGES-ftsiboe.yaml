@@ -41,15 +41,15 @@ jobs:
             enabled: false
 
           - name: arpcFCIPproj
-            upstream_token: ARPCPERIL_TOKEN
+            upstream_token: ARPC_READ_TOKEN_TSIBOE
             enabled: false
 
           - name: arpcFCIPcalc
-            upstream_token: ARPCPERIL_TOKEN
+            upstream_token: ARPC_READ_TOKEN_TSIBOE
             enabled: false
 
           - name: arpcCLU
-            upstream_token: ARPCPERIL_TOKEN
+            upstream_token: ARPC_READ_TOKEN_TSIBOE
             enabled: false
     steps:
       - name: Skip disabled repos
