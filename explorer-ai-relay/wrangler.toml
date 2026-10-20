@@ -4,6 +4,8 @@
 name = "arpc-explorer-ai-relay"
 main = "worker.js"
 compatibility_date = "2026-10-01"
+workers_dev = true      # served at https://arpc-explorer-ai-relay.arpc-bd4.workers.dev
+preview_urls = false    # no extra per-version addresses: the one above is the only way in
 
 # The guards. Change here (or in the dashboard) and redeploy; no code change needed.
 [vars]
