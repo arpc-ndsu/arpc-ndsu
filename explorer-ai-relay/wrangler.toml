@@ -10,7 +10,7 @@ preview_urls = false    # no extra per-version addresses: the one above is the o
 # The guards. Change here (or in the dashboard) and redeploy; no code change needed.
 [vars]
 RELAY_ON = "true"                                  # the kill switch: "false" stops all AI calls at once
-ALLOWED_ORIGINS = "https://arpc-ndsu.github.io"    # sites allowed to call; add "null" only while testing a local copy
+ALLOWED_ORIGINS = "https://arpc-ndsu.github.io,https://arpc-coverage-explorer.ftsiboe.workers.dev"    # the public site and the private (Access-protected) copy; add "null" only while testing a local copy
 MODEL = "claude-haiku-4-5"                         # the only model the relay uses
 MAX_TOKENS = "1500"                                # cap on each answer
 MAX_BODY = "262144"                                # cap on each request, bytes

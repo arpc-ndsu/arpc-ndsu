@@ -27,7 +27,7 @@ reader's page ──(question, figures)──► this Worker ──(+ ARPC's key
 | Setting | Default | What |
 |---|---|---|
 | `RELAY_ON` | `true` | the kill switch; `false` stops all AI calls at once |
-| `ALLOWED_ORIGINS` | `https://arpc-ndsu.github.io` | only the explorer's site may call it |
+| `ALLOWED_ORIGINS` | `https://arpc-ndsu.github.io,https://arpc-coverage-explorer.ftsiboe.workers.dev` | only the explorer's sites (public notice, private copy) may call it |
 | `MODEL` | `claude-haiku-4-5` | the only model used, whatever the page asks for |
 | `MAX_TOKENS` | `1500` | cap on each answer |
 | `MAX_BODY` | `262144` | cap on each request (bytes) |
