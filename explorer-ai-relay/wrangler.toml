@@ -19,12 +19,25 @@ DAILY_USD = "5"                                    # spend limit per UTC day
 MONTHLY_USD = "50"                                 # spend limit per UTC month
 PRICE_IN = "1"                                     # US$ per million input tokens for MODEL
 PRICE_OUT = "5"                                    # US$ per million output tokens for MODEL
+COLLECT_ON = "true"                                # data collection (/collect): "false" stops storing records at once
 
 # The spend counter. Create the namespace once (dashboard: Storage & Databases > KV,
 # or `npx wrangler kv namespace create RELAY_KV`) and put its id here.
 [[kv_namespaces]]
 binding = "RELAY_KV"
-id = "751af4b0c8a0414f8895e39fe848db7e"   # arpc-relay-spend, ARPC Cloudflare account
+id = "ad534d90-1fd3-47d2-88f7-50fd4579b281"   # arpc-relay-spend, ARPC Cloudflare account
 
 # The secret is NOT here: set ANTHROPIC_API_KEY in the dashboard (Settings > Variables
 # and Secrets, type Secret) or with `npx wrangler secret put ANTHROPIC_API_KEY`.
+
+# Data collection: the explorer's records, stored in a D1 database bound as DB.
+# Create it once (dashboard: Storage & Databases > D1 > Create, name
+# "arpc-explorer-records"; or `npx wrangler d1 create arpc-explorer-records`), then
+# remove the # from the four lines below and put its id in database_id. The table
+# is created on the first record. Until then /collect drops records quietly and
+# the AI relay works as before. Reading records back needs the secret EXPORT_TOKEN
+# (dashboard, type Secret, or `npx wrangler secret put EXPORT_TOKEN`); README.md.
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "arpc-explorer-records"
+# database_id = "PUT-THE-D1-DATABASE-ID-HERE"

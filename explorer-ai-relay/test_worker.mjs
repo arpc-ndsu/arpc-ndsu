@@ -12,7 +12,8 @@ const req = (body, {origin = ORIGIN, v = "abcdef0123456789", method = "POST"} = 
   new Request("https://relay.example.workers.dev/?v=" + v, {method, headers: {"content-type": "text/plain;charset=utf-8", ...(origin ? {Origin: origin} : {})},
     body: method === "POST" ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined});
 const good = {model: "claude-opus-5-5", max_tokens: 99999, system: "s", messages: [{role: "user", content: "q"}], thinking: {type: "disabled"}, evil: "x", stream: true};
-const run = async (r, env) => { const res = await worker.fetch(r, env, {waitUntil: p => p}); const t = await res.text(); return {res, t, j: (() => { try { return JSON.parse(t); } catch (e) { return null; } })()}; };
+// waitUntil work (the spend counter, storing a record) runs after the reply, as on Cloudflare; the test waits for it before checking.
+const run = async (r, env) => { const bg = []; const res = await worker.fetch(r, env, {waitUntil: p => { bg.push(p); }}); await Promise.all(bg); const t = await res.text(); return {res, t, j: (() => { try { return JSON.parse(t); } catch (e) { return null; } })()}; };
 
 let env = envOf(), x;
 x = await run(req(null, {method: "OPTIONS"}), env); ok(x.res.status === 204 && x.res.headers.get("access-control-allow-origin") === ORIGIN, "preflight from the site");
@@ -51,5 +52,69 @@ x = await run(req(good), envOf()); ok(x.res.status === 400 && /between_tools/.te
 reply = () => { throw new Error("down"); };
 x = await run(req(good), envOf()); ok(x.res.status === 502, "upstream unreachable");
 
+// ---- data collection: /collect and /export against a real SQLite standing in for D1
+// (node:sqlite, Node 22.5 or later; skipped with a note on older Node).
+let collectNote = "collection skipped (needs Node 22.5+ for node:sqlite)";
+let sqlite = null;
+try { sqlite = await import("node:sqlite"); } catch (e) { /* older Node */ }
+if (sqlite) {
+  const d1 = () => { const db = new sqlite.DatabaseSync(":memory:");
+    const stmt = (sql, args = []) => ({ bind: (...a) => stmt(sql, a),
+      run: async () => { db.prepare(sql).run(...args); return {success: true}; },
+      first: async () => db.prepare(sql).get(...args) ?? null,
+      all: async () => ({results: db.prepare(sql).all(...args)}) });
+    return {db, prepare: sql => stmt(sql)}; };
+  const creq = (body, {origin = ORIGIN, path = "/collect", method = "POST", auth = ""} = {}) =>
+    new Request("https://relay.example.workers.dev" + path, {method, headers: {"content-type": "text/plain;charset=utf-8",
+      ...(origin ? {Origin: origin} : {}), ...(auth ? {Authorization: auth} : {})},
+      body: method === "POST" ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined});
+  const rows = env => env.DB.db.prepare("SELECT * FROM records ORDER BY id").all();
+  const rec = (o = {}) => ({schema: 2, session: "0123456789abcdef", turn: 1, t: "2026-10-21T14:00Z", tab: "ask", kind: "question",
+    question: "How much of Iowa is protected?", ai: true, refused: false, tokens_in: 10, ...o});
+  let cenv = envOf({DB: d1(), EXPORT_TOKEN: "TEST-EXPORT-TOKEN"});
+  x = await run(creq(rec()), cenv); ok(x.res.status === 204 && x.res.headers.get("access-control-allow-origin") === ORIGIN, "collect answers 204 with CORS");
+  let r = rows(cenv); ok(r.length === 1 && r[0].question === "How much of Iowa is protected?" && r[0].ai === 1 && r[0].refused === 0 && r[0].exp === null && r[0].received, "record stored: " + JSON.stringify(r[0]));
+  await run(creq(rec({exp: "agent_readers", round: "core", cell: "D-on", agent: "r07-A1-sonnet", turn: 2})), cenv);
+  await run(creq(rec({round: "core"})), cenv);                                     // tag without exp: dropped
+  await run(creq(rec({exp: "agent_readers", agent: "<script>", turn: 3})), cenv);  // bad tag value dropped
+  r = rows(cenv);
+  ok(r[1].exp === "agent_readers" && r[1].cell === "D-on" && r[1].agent === "r07-A1-sonnet", "experiment tags stored");
+  ok(r[2].round === null, "tags ignored without exp");
+  ok(r[3].exp === "agent_readers" && r[3].agent === null, "bad tag value dropped");
+  const n0 = rows(cenv).length;
+  for (const bad of ["not json", JSON.stringify({...rec(), schema: 1}), JSON.stringify({...rec(), session: "XYZ"}), JSON.stringify({...rec(), tab: "other"}), "x".repeat(9000)])
+    await run(creq(bad), cenv);
+  ok(rows(cenv).length === n0, "junk dropped: bad JSON, schema, session, tab, size");
+  await run(creq(rec(), {origin: "https://evil.example"}), cenv); ok(rows(cenv).length === n0, "other origin not stored");
+  await run(creq(rec(), {origin: ""}), cenv); ok(rows(cenv).length === n0, "no origin not stored");
+  await run(creq(rec()), {...cenv, COLLECT_ON: "false"}); ok(rows(cenv).length === n0, "COLLECT_ON false stops storing");
+  x = await run(creq(rec()), envOf()); ok(x.res.status === 204, "no DB: still 204, nothing breaks");
+  await run(creq(rec({question: "q".repeat(2000), evil: {a: 1}, received: "1999", turn: 9})), cenv);
+  r = rows(cenv).pop(); ok(r.question.length === 600 && JSON.parse(r.extra).evil === '{"a":1}' && r.received !== "1999", "strings capped, unknown fields to extra, received set by the server");
+  // per-session cap
+  const cap = envOf({DB: d1()});
+  for (let i = 0; i < 205; i++) await run(creq(rec({turn: i})), cap);
+  ok(rows(cap).length === 200, "at most 200 records per session per six hours, got " + rows(cap).length);
+  // the AI relay is unaffected by the collection route
+  upstream = []; reply = () => new Response(JSON.stringify({content: [], usage: {input_tokens: 1, output_tokens: 1}}), {status: 200});
+  x = await run(req(good), cenv); ok(x.res.status === 200 && upstream.length === 1, "relay still answers with DB bound");
+  // export
+  x = await run(creq(null, {path: "/export", method: "GET"}), cenv); ok(x.res.status === 404, "export without token: 404");
+  x = await run(creq(null, {path: "/export", method: "GET", auth: "Bearer wrong-token-xxxxxx"}), cenv); ok(x.res.status === 404, "export with a wrong token: 404");
+  x = await run(creq(null, {path: "/export", method: "GET", auth: "Bearer TEST-EXPORT-TOKEN"}), envOf({DB: cenv.DB})); ok(x.res.status === 404, "export with no token configured: 404");
+  x = await run(creq(null, {path: "/export?table=records", method: "GET", auth: "Bearer TEST-EXPORT-TOKEN"}), cenv);
+  const lines = x.t.trim().split("\r\n");
+  ok(x.res.status === 200 && /text\/csv/.test(x.res.headers.get("content-type")) && lines[0].startsWith("received,schema,session") && !lines[0].includes("exp,"), "records CSV, no tag columns: " + lines[0].slice(0, 60));
+  ok(lines.length - 1 === rows(cenv).filter(z => z.exp === null).length, "records CSV holds real readers only");
+  x = await run(creq(null, {path: "/export?table=experiments", method: "GET", auth: "Bearer TEST-EXPORT-TOKEN"}), cenv);
+  const el = x.t.trim().split("\r\n"); ok(el[0].startsWith("received,exp,round,cell,agent") && el.length - 1 === 2, "experiments CSV holds tagged visits: " + el.length);
+  await run(creq(rec({question: "=HYPERLINK(1)", turn: 50})), cenv);
+  x = await run(creq(null, {path: "/export", method: "GET", auth: "Bearer TEST-EXPORT-TOKEN"}), cenv); ok(x.t.includes("'=HYPERLINK(1)"), "formula-like cells exported as text");
+  x = await run(creq(null, {path: "/export?table=evil", method: "GET", auth: "Bearer TEST-EXPORT-TOKEN"}), cenv); ok(x.res.status === 400, "bad table refused");
+  x = await run(creq(null, {path: "/export?since=2026-01-01", method: "GET", auth: "Bearer TEST-EXPORT-TOKEN"}), cenv); ok(x.res.status === 200, "since accepted");
+  ok(!x.t.includes("TEST-EXPORT-TOKEN"), "token never echoed");
+  collectNote = "collection: stored with tags, junk and other origins dropped, kill switch, no DB is harmless, strings capped, per-session cap, relay unaffected, export only with the token, CSV split into records and experiments, formula cells guarded";
+}
+
 if (fails.length) { console.error("test_worker: FAILED\n  " + fails.join("\n  ")); process.exit(1); }
-console.log("test_worker: ok — origin check and CORS, kill switch, fails closed without key or KV, visit id, size cap, model forced, answer capped, fields dropped, key never echoed, spend counted, daily and monthly limits pause before any upstream call, per-visit limit, upstream errors passed through.");
+console.log("test_worker: ok — origin check and CORS, kill switch, fails closed without key or KV, visit id, size cap, model forced, answer capped, fields dropped, key never echoed, spend counted, daily and monthly limits pause before any upstream call, per-visit limit, upstream errors passed through; " + collectNote + ".");
