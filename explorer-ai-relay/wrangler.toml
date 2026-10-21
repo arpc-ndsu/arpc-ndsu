@@ -25,19 +25,17 @@ COLLECT_ON = "true"                                # data collection (/collect):
 # or `npx wrangler kv namespace create RELAY_KV`) and put its id here.
 [[kv_namespaces]]
 binding = "RELAY_KV"
-id = "ad534d90-1fd3-47d2-88f7-50fd4579b281"   # arpc-relay-spend, ARPC Cloudflare account
+id = "751af4b0c8a0414f8895e39fe848db7e"   # arpc-relay-spend, ARPC Cloudflare account (the KV namespace, not the D1 database)
 
 # The secret is NOT here: set ANTHROPIC_API_KEY in the dashboard (Settings > Variables
 # and Secrets, type Secret) or with `npx wrangler secret put ANTHROPIC_API_KEY`.
 
-# Data collection: the explorer's records, stored in a D1 database bound as DB.
-# Create it once (dashboard: Storage & Databases > D1 > Create, name
-# "arpc-explorer-records"; or `npx wrangler d1 create arpc-explorer-records`), then
-# remove the # from the four lines below and put its id in database_id. The table
-# is created on the first record. Until then /collect drops records quietly and
-# the AI relay works as before. Reading records back needs the secret EXPORT_TOKEN
+# Data collection: the explorer's records, stored in the D1 database
+# "arpc-explorer-records" (ARPC account), bound as DB. The table is created on the
+# first record. Without this binding /collect drops records quietly and the AI
+# relay works as before. Reading records back needs the secret EXPORT_TOKEN
 # (dashboard, type Secret, or `npx wrangler secret put EXPORT_TOKEN`); README.md.
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "arpc-explorer-records"
-# database_id = "PUT-THE-D1-DATABASE-ID-HERE"
+[[d1_databases]]
+binding = "DB"
+database_name = "arpc-explorer-records"
+database_id = "ad534d90-1fd3-47d2-88f7-50fd4579b281"
